@@ -1,4 +1,4 @@
-from math import sqrt, sin, cos, radians, ceil, pi
+from math import sqrt, sin, cos, ceil, pi
 import sys
 from random import randrange, uniform
 from PyQt6.QtCore import Qt, QRect, QPoint, QTimer
@@ -40,21 +40,21 @@ class Planet():
 	def setColor(self, color):
 		self.color = color
 
-	def autoCenter(self):
+	def autoCenter(self, scale):
 		if self.parent is not None:
-			self.center = QPoint(self.parent.center.x() + self.parent.radius + self.orbit_height, self.parent.center.y())
+			self.center = QPoint(self.parent.center.x() + round((self.parent.radius + self.orbit_height) * scale), self.parent.center.y())
 		else:
 			raise ValueError("Could not center object without selected parent.")
 	
-	def move(self, angle):
+	def move(self, angle, scale):
 		if self.parent is not None:
 			self.alpha += angle * self.angle_ratio
-			self.center = QPoint(round(self.parent.center.x() + (self.parent.radius + self.orbit_height) * cos(self.alpha)), round(self.parent.center.y() + (self.parent.radius + self.orbit_height) * sin(self.alpha)))
+			self.center = QPoint(round(self.parent.center.x() + (self.parent.radius + self.orbit_height) * cos(self.alpha) * scale), round(self.parent.center.y() + (self.parent.radius + self.orbit_height) * sin(self.alpha) * scale))
 		else:
 			raise ValueError("Could not move object without selected parent.")
 
 	def draw(self, painter, scale):
-		paint_rad = round(self.radius * scale)
+		paint_rad = max(1, round(self.radius * scale))
 		circle_area = QRect(self.center.x() - paint_rad, self.center.y() - paint_rad, paint_rad * 2, paint_rad * 2)
 		pen = QPen()
 		pen.setColor(QColor(self.color.red(), self.color.green(), self.color.blue()))
@@ -108,21 +108,21 @@ class Satellite():
 	def setColor(self, color):
 		self.color = color
 
-	def autoCenter(self):
+	def autoCenter(self, scale):
 		if self.parent is not None:
-			self.center = QPoint(self.parent.center.x() + self.parent.radius + self.orbit_height, self.parent.center.y())
+			self.center = QPoint(self.parent.center.x() + round((self.parent.radius + self.orbit_height) * scale), self.parent.center.y())
 		else:
 			raise ValueError("Could not center object without selected parent.")
 	
-	def move(self, angle):
+	def move(self, angle, scale):
 		if self.parent is not None:
 			self.alpha += angle * self.angle_ratio
-			self.center = QPoint(round(self.parent.center.x() + (self.parent.radius + self.orbit_height) * cos(self.alpha)), round(self.parent.center.y() + (self.parent.radius + self.orbit_height) * sin(self.alpha)))
+			self.center = QPoint(round(self.parent.center.x() + (self.parent.radius + self.orbit_height) * cos(self.alpha) * scale), round(self.parent.center.y() + (self.parent.radius + self.orbit_height) * sin(self.alpha) * scale))
 		else:
 			raise ValueError("Could not move object without selected parent.")
 
 	def draw(self, painter, scale):
-		paint_rad = self.radius
+		paint_rad = 1 if max(1, round(self.parent.radius * scale)) <= self.radius else self.radius
 		circle_area = QRect(self.center.x() - paint_rad, self.center.y() - paint_rad, paint_rad * 2, paint_rad * 2)
 		pen = QPen()
 		pen.setColor(QColor(self.color.red(), self.color.green(), self.color.blue()))
@@ -133,7 +133,7 @@ class Satellite():
 		painter.drawEllipse(circle_area)	
 
 class Constellation():
-	def __init__(self, parent, const_sz):
+	def __init__(self, parent, const_sz, scale):
 		self.parent = parent
 		self.orbit_height = parent.lpo #км
 		self.satellites = []
@@ -144,7 +144,7 @@ class Constellation():
 			tmp = Satellite(None, angle)
 			tmp.setParent(self.parent)
 			tmp.setOrbitHeight(self.orbit_height)
-			tmp.autoCenter()
+			tmp.autoCenter(scale)
 			angle += alpha
 			self.satellites.append(tmp)
 
@@ -159,7 +159,7 @@ class Constellation():
 		for satellite in self.satellites:
 			satellite.setOrbitHeight(self.orbit_height)
 
-	def setConstellationSize(self, size):
+	def setConstellationSize(self, size, scale):
 		self.satellites = []
 		angle = 0
 		alpha = 2*pi / size
@@ -167,7 +167,7 @@ class Constellation():
 			tmp = Satellite(None, angle)
 			tmp.setParent(self.parent)
 			tmp.setOrbitHeight(self.orbit_height)
-			tmp.autoCenter()
+			tmp.autoCenter(scale)
 			angle += alpha
 			self.satellites.append(tmp)
 
@@ -180,24 +180,25 @@ class Constellation():
 			y2 = self.satellites[index+1].center.y() if index != len(self.satellites) - 1 else self.satellites[0].center.y()
 			painter.drawLine(x1, y1, x2, y2)
 
-	def move(self, angle):
+	def move(self, angle, scale):
 		for satellite in self.satellites:
-			satellite.move(angle)
+			satellite.move(angle, scale)
 
 class MainWindow(QMainWindow):
 	def __init__(self):
 		super().__init__()
 		self.setWindowTitle("Kerbal Satellite Relay Network")
 		self.setFixedSize(1300, 900)
-
 		self.objects = []
 		main_object = Planet(QPoint(450, 450))
-		main_object.setRadius(100)
+		main_object.setRadius(1000)
+		main_object.setSOIRadius(100000)
 		main_object.setName("Центр")
 		self.objects.append(main_object)
 		self.active_obj = 0
 		self.constellations = []
 		self.active_constellation = None
+		self.scale = 860 / (main_object.radius + main_object.soi_radius) / 2
 
 		canvas = QLabel()
 		canvas.setFixedSize(900, 900)
@@ -264,8 +265,8 @@ class MainWindow(QMainWindow):
 		self.soi_radius_input.setMaximum(2147483647)
 		self.lpo_input.setMinimum(1)
 		self.lpo_input.setMaximum(2147483647)
-		self.obj_radius_input.setValue(100)
-		self.soi_radius_input.setValue(1)
+		self.obj_radius_input.setValue(1000)
+		self.soi_radius_input.setValue(100000)
 		self.lpo_input.setValue(1)
 		self.orbit_height_input.setMinimum(0)
 		self.orbit_height_input.setValue(0)
@@ -376,10 +377,10 @@ class MainWindow(QMainWindow):
 	def move_satellites(self):
 		for obj in self.objects:
 			if obj.parent is not None:
-				obj.move(0.01)
+				obj.move(0.01, self.scale)
 
 		for constellation in self.constellations:
-			constellation.move(0.01)
+			constellation.move(0.01, self.scale)
 		self.update()
 
 	def paintEvent(self, event):
@@ -389,15 +390,15 @@ class MainWindow(QMainWindow):
 		painter.drawRect(fill)
 
 		for index, obj in enumerate(self.objects):
-			obj.draw(painter, 1)
+			obj.draw(painter, self.scale)
 			if index == self.active_obj and obj.parent is not None:
-				obj.parent.draw_zone(painter, 1, QColor(0, 0, 0, 20))
-				obj.draw_zone(painter, 1, QColor(74, 219, 176, 90))
+				obj.parent.draw_zone(painter, self.scale, QColor(0, 0, 0, 20))
+				obj.draw_zone(painter, self.scale, QColor(74, 219, 176, 90))
 			elif index == self.active_obj:
-				obj.draw_zone(painter, 1, QColor(74, 219, 176, 90))
+				obj.draw_zone(painter, self.scale, QColor(74, 219, 176, 90))
 
 		for constellation in self.constellations:
-			constellation.draw(painter, 1)
+			constellation.draw(painter, self.scale)
 
 		controls_panel = QRect(900, 0, 400, 900)
 		painter.setPen(QPen(self.background_brush.color()))
@@ -415,13 +416,13 @@ class MainWindow(QMainWindow):
 		planet.setOrbitHeight(height)
 		planet.setParent(self.objects[0])
 		planet.setName(self.next_name())
-		planet.autoCenter()
+		planet.autoCenter(self.scale)
 		self.objects.append(planet)
 		self.active_obj = len(self.objects) - 1
 		self.refresh_interface()
 
 	def new_constellation(self):
-		constellation = Constellation(self.objects[self.active_obj], 3)
+		constellation = Constellation(self.objects[self.active_obj], 3, self.scale)
 		height = self.objects[self.active_obj].lpo + 1
 		constellation.setOrbitHeight(height)
 		constellation.setName(self.next_constellation_name())
@@ -437,6 +438,8 @@ class MainWindow(QMainWindow):
 
 	def change_obj_radius(self):
 		self.objects[self.active_obj].setRadius(self.obj_radius_input.value())
+		if self.active_obj == 0:
+			self.rescale()
 		self.refresh_interface()
 
 	def change_orbit_height(self):
@@ -445,6 +448,8 @@ class MainWindow(QMainWindow):
 
 	def change_soi_radius(self):
 		self.objects[self.active_obj].setSOIRadius(self.soi_radius_input.value())
+		if self.active_obj == 0:
+			self.rescale()
 		self.refresh_interface()
 
 	def change_lpo(self):
@@ -456,7 +461,7 @@ class MainWindow(QMainWindow):
 		self.refresh_interface()
 
 	def change_constellation_size(self):
-		self.constellations[self.active_constellation].setConstellationSize(self.constellation_size_input.value())
+		self.constellations[self.active_constellation].setConstellationSize(self.constellation_size_input.value(), self.scale)
 		self.refresh_interface()
 
 	def change_constellation_height(self):
@@ -497,6 +502,9 @@ class MainWindow(QMainWindow):
 			if constellation.parent == self.objects[self.active_obj]:
 				active_consts.append({"base": index, "obj": constellation})
 		return active_consts
+
+	def rescale(self):
+		self.scale = 860 / (self.objects[0].radius + self.objects[0].soi_radius) / 2
 
 	def refresh_interface(self):
 		self.planet_set.clear()
