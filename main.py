@@ -352,7 +352,19 @@ class MainWindow(QMainWindow):
 		self.satellite_lt.addLayout(satellite_options)
 		self.satellite_lt.addWidget(blank)
 
+		speed_slider = QSlider(Qt.Orientation.Horizontal)
+		speed_slider.setMinimum(1)
+		speed_slider.setMaximum(30)
+		speed_slider.setValue(5)
+		speed_slider.sliderMoved.connect(self.restart_timer)
+
+		app_options = QVBoxLayout()
+		app_options.addWidget(speed_slider)
+
 		options_lt = QHBoxLayout()
+		options_lt.addWidget(blank)
+		options_lt.addLayout(app_options)
+		options_lt.addWidget(blank)
 
 		controls_lt = QVBoxLayout()
 		controls_lt.addLayout(planet_lt)
@@ -377,10 +389,10 @@ class MainWindow(QMainWindow):
 	def move_satellites(self):
 		for obj in self.objects:
 			if obj.parent is not None:
-				obj.move(0.01, self.scale)
+				obj.move(0.005, self.scale)
 
 		for constellation in self.constellations:
-			constellation.move(0.01, self.scale)
+			constellation.move(0.005, self.scale)
 		self.update()
 
 	def paintEvent(self, event):
@@ -406,6 +418,10 @@ class MainWindow(QMainWindow):
 		painter.drawRect(controls_panel)
 
 		painter.end()
+
+	def restart_timer(self, timeout):
+		self.timer.stop()
+		self.timer.start(timeout)
 
 	def new_planet(self):
 		height = round((self.objects[0].lpo + self.objects[0].soi_radius) / 2)
@@ -448,12 +464,18 @@ class MainWindow(QMainWindow):
 
 	def change_soi_radius(self):
 		self.objects[self.active_obj].setSOIRadius(self.soi_radius_input.value())
+		for obj in self.objects:
+			if obj.parent == self.objects[self.active_obj] and obj.orbit_height > self.orbit_high_border(self.objects[self.active_obj], obj):
+				obj.orbit_height = self.orbit_high_border(self.objects[self.active_obj], obj)
 		if self.active_obj == 0:
 			self.rescale()
 		self.refresh_interface()
 
 	def change_lpo(self):
 		self.objects[self.active_obj].setLPO(self.lpo_input.value())
+		for obj in self.objects:
+			if obj.parent == self.objects[self.active_obj] and obj.orbit_height < self.orbit_low_border(self.objects[self.active_obj], obj):
+				obj.orbit_height = self.orbit_low_border(self.objects[self.active_obj], obj)
 		self.refresh_interface()
 
 	def change_parent(self, index):
@@ -506,6 +528,12 @@ class MainWindow(QMainWindow):
 	def rescale(self):
 		self.scale = 860 / (self.objects[0].radius + self.objects[0].soi_radius) / 2
 
+	def orbit_high_border(self, parent_obj, child_obj):
+		return parent_obj.soi_radius - (child_obj.soi_radius + child_obj.radius)
+
+	def orbit_low_border(self, parent_obj, child_obj):
+		return parent_obj.lpo + child_obj.soi_radius + child_obj.radius
+
 	def refresh_interface(self):
 		self.planet_set.clear()
 		self.planet_set.addItems([obj.name for obj in self.objects])
@@ -526,12 +554,14 @@ class MainWindow(QMainWindow):
 				if index != parent_ind and index != self.active_obj and self.objects[index].getGeneration() != 3 and (self.objects[index].getGeneration() + self.children_max_gen(self.objects[self.active_obj])) <= 4:
 					self.parent_input.addItem(self.objects[index].name)
 			self.parent_input.setCurrentIndex(0)
-			self.orbit_height_input.setMinimum(parent.lpo + self.objects[self.active_obj].soi_radius)
-			self.orbit_height_input.setMaximum(parent.soi_radius)
-			if self.objects[self.active_obj].orbit_height > parent.soi_radius:
-				self.objects[self.active_obj].orbit_height = parent.soi_radius
-			elif self.objects[self.active_obj].orbit_height < parent.lpo + self.objects[self.active_obj].soi_radius:
-				self.objects[self.active_obj].orbit_height = parent.lpo + self.objects[self.active_obj].soi_radius
+			high_border = self.orbit_high_border(parent, self.objects[self.active_obj])
+			low_border = self.orbit_low_border(parent, self.objects[self.active_obj])
+			self.orbit_height_input.setMinimum(low_border)
+			self.orbit_height_input.setMaximum(high_border)
+			if self.objects[self.active_obj].orbit_height > high_border:
+				self.objects[self.active_obj].orbit_height = high_border
+			elif self.objects[self.active_obj].orbit_height < low_border:
+				self.objects[self.active_obj].orbit_height = low_border
 				#+ self radius
 		self.obj_radius_input.setValue(self.objects[self.active_obj].radius)
 		self.soi_radius_input.setValue(self.objects[self.active_obj].soi_radius)
