@@ -1,6 +1,6 @@
-from math import sqrt, sin, cos, radians, ceil
+from math import sqrt, sin, cos, radians, ceil, pi
 import sys
-from random import randrange
+from random import randrange, uniform
 from PyQt6.QtCore import Qt, QRect, QPoint, QTimer
 from PyQt6.QtWidgets import QApplication, QWidget, QMainWindow, QSlider, QSpinBox, QComboBox, QLabel, QRadioButton, QVBoxLayout, QHBoxLayout, QCheckBox, QPushButton, QLineEdit, QColorDialog
 from PyQt6.QtGui import QPainter, QPen, QColor, QPolygon, QBrush, QFont, QPalette
@@ -13,7 +13,7 @@ class Planet():
 		self.lpo = 1 #км
 		self.parent = None
 		self.orbit_height = 0 #км
-		self.alpha = randrange(0, 360, 1) #градусов
+		self.alpha = uniform(0, 2*pi)
 		self.color = QColor(randrange(0, 256, 1), randrange(0, 256, 1), randrange(0, 256, 1))
 		self.angle_ratio = 0.01
 		self.name = ""
@@ -49,7 +49,7 @@ class Planet():
 	def move(self, angle):
 		if self.parent is not None:
 			self.alpha += angle * self.angle_ratio
-			self.center = QPoint(round(self.parent.center.x() + (self.parent.radius + self.orbit_height) * cos(radians(self.alpha))), round(self.parent.center.y() + (self.parent.radius + self.orbit_height) * sin(radians(self.alpha))))
+			self.center = QPoint(round(self.parent.center.x() + (self.parent.radius + self.orbit_height) * cos(self.alpha)), round(self.parent.center.y() + (self.parent.radius + self.orbit_height) * sin(self.alpha)))
 		else:
 			raise ValueError("Could not move object without selected parent.")
 
@@ -94,7 +94,7 @@ class Satellite():
 		self.radius = 3 #км
 		self.parent = None
 		self.orbit_height = 0 #км
-		self.alpha = alpha #градусов
+		self.alpha = alpha
 		self.color = QColor(0, 255, 63, 100)
 		self.angle_ratio = 0.01
 
@@ -117,7 +117,7 @@ class Satellite():
 	def move(self, angle):
 		if self.parent is not None:
 			self.alpha += angle * self.angle_ratio
-			self.center = QPoint(round(self.parent.center.x() + (self.parent.radius + self.orbit_height) * cos(radians(self.alpha))), round(self.parent.center.y() + (self.parent.radius + self.orbit_height) * sin(radians(self.alpha))))
+			self.center = QPoint(round(self.parent.center.x() + (self.parent.radius + self.orbit_height) * cos(self.alpha)), round(self.parent.center.y() + (self.parent.radius + self.orbit_height) * sin(self.alpha)))
 		else:
 			raise ValueError("Could not move object without selected parent.")
 
@@ -139,7 +139,7 @@ class Constellation():
 		self.satellites = []
 		self.name = ""
 		angle = 0
-		alpha = round(360 / const_sz)
+		alpha = 2*pi / const_sz
 		for i in range(const_sz):
 			tmp = Satellite(None, angle)
 			tmp.setParent(self.parent)
@@ -162,7 +162,7 @@ class Constellation():
 	def setConstellationSize(self, size):
 		self.satellites = []
 		angle = 0
-		alpha = round(360 / size)
+		alpha = 2*pi / size
 		for i in range(size):
 			tmp = Satellite(None, angle)
 			tmp.setParent(self.parent)
@@ -376,10 +376,10 @@ class MainWindow(QMainWindow):
 	def move_satellites(self):
 		for obj in self.objects:
 			if obj.parent is not None:
-				obj.move(0.5)
+				obj.move(0.01)
 
 		for constellation in self.constellations:
-			constellation.move(0.5)
+			constellation.move(0.01)
 		self.update()
 
 	def paintEvent(self, event):
