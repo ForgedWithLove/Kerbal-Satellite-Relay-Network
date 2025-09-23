@@ -148,6 +148,9 @@ class Constellation():
 			angle += alpha
 			self.satellites.append(tmp)
 
+	def getSize(self):
+		return len(self.satellites)
+
 	def setName(self, name):
 		self.name = name
 
@@ -160,7 +163,7 @@ class Constellation():
 		self.satellites = []
 		angle = 0
 		alpha = round(360 / size)
-		for i in range(const_sz):
+		for i in range(size):
 			tmp = Satellite(None, angle)
 			tmp.setParent(self.parent)
 			tmp.setOrbitHeight(self.orbit_height)
@@ -293,11 +296,13 @@ class MainWindow(QMainWindow):
 		self.constellation_size_input.setMaximum(99)
 		self.constellation_size_input.setValue(3)
 		self.constellation_size_input.editingFinished.connect(self.change_constellation_size)
+		self.constellation_size_input.setEnabled(False)
 		self.constellation_height_input = QSpinBox()
 		self.constellation_height_input.setSuffix(" км")
 		self.constellation_height_input.setMinimum(1)
 		self.constellation_height_input.setMaximum(2147483647)
 		self.constellation_height_input.editingFinished.connect(self.change_constellation_height)
+		self.constellation_height_input.setEnabled(False)
 
 		new_constellation = QPushButton(text="🛰")
 		new_constellation.setFont(QFont('Times', 14))
@@ -306,12 +311,14 @@ class MainWindow(QMainWindow):
 
 		self.constellation_set = QComboBox()
 		self.constellation_set.setFixedSize(295, 30)
+		self.constellation_set.activated.connect(self.activate_constellation)
 
 		self.constellation_name = QLineEdit() #20 символов
 		self.constellation_name.setFixedSize(330, 30)
 		self.constellation_name.setFont(QFont('', 14))
 		self.constellation_name.setAlignment(Qt.AlignmentFlag.AlignCenter)
 		self.constellation_name.setEnabled(False)
+		self.constellation_name.editingFinished.connect(self.rename_constellation)
 
 		lt7 = QHBoxLayout()
 		lt7.addWidget(new_constellation)
@@ -370,7 +377,9 @@ class MainWindow(QMainWindow):
 		for obj in self.objects:
 			if obj.parent is not None:
 				obj.move(0.5)
-		#self.astra.move(0.5)
+
+		for constellation in self.constellations:
+			constellation.move(0.5)
 		self.update()
 
 	def paintEvent(self, event):
@@ -387,7 +396,8 @@ class MainWindow(QMainWindow):
 			elif index == self.active_obj:
 				obj.draw_zone(painter, 1, QColor(74, 219, 176, 90))
 
-		#self.astra.draw(painter, 1)
+		for constellation in self.constellations:
+			constellation.draw(painter, 1)
 
 		controls_panel = QRect(900, 0, 400, 900)
 		painter.setPen(QPen(self.background_brush.color()))
@@ -411,7 +421,13 @@ class MainWindow(QMainWindow):
 		self.refresh_interface()
 
 	def new_constellation(self):
-		return
+		constellation = Constellation(self.objects[self.active_obj], 3)
+		height = self.objects[self.active_obj].lpo + 1
+		constellation.setOrbitHeight(height)
+		constellation.setName(self.next_constellation_name())
+		self.constellations.append(constellation)
+		self.active_constellation = len(self.constellations) - 1
+		self.refresh_interface()
 
 	def next_name(self):
 		return f'Тело{len(self.objects) + 1}'
@@ -455,6 +471,14 @@ class MainWindow(QMainWindow):
 		self.objects[self.active_obj].setName(self.planet_name.text())
 		self.refresh_interface()
 
+	def activate_constellation(self, index):
+		self.active_constellation = self.active_consts()[index]["base"]
+		self.refresh_interface()
+
+	def rename_constellation(self):
+		self.constellations[self.active_constellation].setName(self.constellation_name.text())
+		self.refresh_interface()
+
 	def repaint_object(self):
 		color = QColorDialog.getColor(self.objects[self.active_obj].color, self, "Выберите цвет")
 		if color.isValid():
@@ -466,6 +490,13 @@ class MainWindow(QMainWindow):
 			if obji.parent == obj:
 				children.append(obji.getGeneration())
 		return max(children)
+
+	def active_consts(self):
+		active_consts = []
+		for index, constellation in enumerate(self.constellations):
+			if constellation.parent == self.objects[self.active_obj]:
+				active_consts.append({"base": index, "obj": constellation})
+		return active_consts
 
 	def refresh_interface(self):
 		self.planet_set.clear()
@@ -499,6 +530,26 @@ class MainWindow(QMainWindow):
 		self.lpo_input.setValue(self.objects[self.active_obj].lpo)
 		self.orbit_height_input.setValue(self.objects[self.active_obj].orbit_height)
 		self.planet_name.setText(self.objects[self.active_obj].name)
+
+		self.constellation_set.clear()
+		active_consts = self.active_consts()
+		if len(active_consts) == 0:
+			self.constellation_size_input.setEnabled(False)
+			self.constellation_height_input.setEnabled(False)
+			self.constellation_name.setEnabled(False)
+		else:
+			self.constellation_size_input.setEnabled(True)
+			self.constellation_height_input.setEnabled(True)
+			self.constellation_name.setEnabled(True)
+			self.constellation_set.addItems([const["obj"].name for const in active_consts])
+			active_const = 0
+			for index, const in enumerate(active_consts):
+				if const["base"] == self.active_constellation:
+					active_const = index
+			self.constellation_set.setCurrentIndex(active_const)
+			self.constellation_size_input.setValue(self.constellations[self.active_constellation].getSize())
+			self.constellation_height_input.setValue(self.constellations[self.active_constellation].orbit_height)
+			self.constellation_name.setText(self.constellations[self.active_constellation].name)
 
 if __name__ == "__main__":
 	app = QApplication(sys.argv)
