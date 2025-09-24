@@ -29,7 +29,6 @@ class Planet():
 
 	def setParent(self, parent):
 		self.parent = parent
-		self.angle_ratio = self.parent.angle_ratio * 10
 
 	def setOrbitHeight(self, orbit_height):
 		self.orbit_height = orbit_height
@@ -45,6 +44,10 @@ class Planet():
 			self.center = QPoint(self.parent.center.x() + round((self.parent.radius + self.orbit_height) * scale), self.parent.center.y())
 		else:
 			raise ValueError("Could not center object without selected parent.")
+
+	def autoAR(self):
+		if self.parent is not None:
+			self.angle_ratio = self.parent.angle_ratio * 10 * sqrt(pow(self.parent.soi_radius, 3) / pow(self.orbit_height, 3))
 	
 	def move(self, angle, scale):
 		if self.parent is not None:
@@ -100,7 +103,6 @@ class Satellite():
 
 	def setParent(self, parent):
 		self.parent = parent
-		self.angle_ratio = self.parent.angle_ratio * 10
 
 	def setOrbitHeight(self, orbit_height):
 		self.orbit_height = orbit_height
@@ -113,6 +115,9 @@ class Satellite():
 			self.center = QPoint(self.parent.center.x() + round((self.parent.radius + self.orbit_height) * scale), self.parent.center.y())
 		else:
 			raise ValueError("Could not center object without selected parent.")
+
+	def autoAR(self):
+		self.angle_ratio = self.parent.angle_ratio * 10 * sqrt(pow(self.parent.soi_radius, 3) / pow(self.orbit_height, 3))
 	
 	def move(self, angle, scale):
 		if self.parent is not None:
@@ -144,6 +149,7 @@ class Constellation():
 			tmp = Satellite(None, angle)
 			tmp.setParent(self.parent)
 			tmp.setOrbitHeight(self.orbit_height)
+			tmp.autoAR()
 			tmp.autoCenter(scale)
 			angle += alpha
 			self.satellites.append(tmp)
@@ -158,6 +164,7 @@ class Constellation():
 		self.orbit_height = orbit_height
 		for satellite in self.satellites:
 			satellite.setOrbitHeight(self.orbit_height)
+			satellite.autoAR()
 
 	def setConstellationSize(self, size, scale):
 		self.satellites = []
@@ -167,6 +174,7 @@ class Constellation():
 			tmp = Satellite(None, angle)
 			tmp.setParent(self.parent)
 			tmp.setOrbitHeight(self.orbit_height)
+			tmp.autoAR()
 			tmp.autoCenter(scale)
 			angle += alpha
 			self.satellites.append(tmp)
@@ -354,8 +362,8 @@ class MainWindow(QMainWindow):
 
 		speed_slider = QSlider(Qt.Orientation.Horizontal)
 		speed_slider.setMinimum(1)
-		speed_slider.setMaximum(30)
-		speed_slider.setValue(5)
+		speed_slider.setMaximum(40)
+		speed_slider.setValue(10)
 		speed_slider.sliderMoved.connect(self.restart_timer)
 
 		app_options = QVBoxLayout()
@@ -389,10 +397,10 @@ class MainWindow(QMainWindow):
 	def move_satellites(self):
 		for obj in self.objects:
 			if obj.parent is not None:
-				obj.move(0.005, self.scale)
+				obj.move(0.001, self.scale)
 
 		for constellation in self.constellations:
-			constellation.move(0.005, self.scale)
+			constellation.move(0.001, self.scale)
 		self.update()
 
 	def paintEvent(self, event):
@@ -423,6 +431,17 @@ class MainWindow(QMainWindow):
 		self.timer.stop()
 		self.timer.start(timeout)
 
+	def recalc_AR(self, obj):
+		obj.autoAR()
+		if obj.getGeneration() < 3:
+			for child in self.objects:
+				if child.parent == obj:
+					child.autoAR()
+					if child.getGeneration() < 3:
+						for childchild in self.objects:
+							if childchild.parent == child:
+								childchild.autoAR()
+
 	def new_planet(self):
 		height = round((self.objects[0].lpo + self.objects[0].soi_radius) / 2)
 		planet = Planet(None)
@@ -433,6 +452,7 @@ class MainWindow(QMainWindow):
 		planet.setParent(self.objects[0])
 		planet.setName(self.next_name())
 		planet.autoCenter(self.scale)
+		planet.autoAR()
 		self.objects.append(planet)
 		self.active_obj = len(self.objects) - 1
 		self.refresh_interface()
@@ -460,6 +480,7 @@ class MainWindow(QMainWindow):
 
 	def change_orbit_height(self):
 		self.objects[self.active_obj].setOrbitHeight(self.orbit_height_input.value())
+		self.recalc_AR(self.objects[self.active_obj])
 		self.refresh_interface()
 
 	def change_soi_radius(self):
@@ -469,6 +490,7 @@ class MainWindow(QMainWindow):
 				obj.orbit_height = self.orbit_high_border(self.objects[self.active_obj], obj)
 		if self.active_obj == 0:
 			self.rescale()
+		self.recalc_AR(self.objects[self.active_obj])
 		self.refresh_interface()
 
 	def change_lpo(self):
@@ -480,6 +502,8 @@ class MainWindow(QMainWindow):
 
 	def change_parent(self, index):
 		self.objects[self.active_obj].setParent(self.objects[[obj.name for obj in self.objects].index(self.parent_input.currentText())])
+		self.objects[self.active_obj].setOrbitHeight(round((self.objects[self.active_obj].parent.lpo + self.objects[self.active_obj].parent.soi_radius) / 2))
+		self.recalc_AR(self.objects[self.active_obj])
 		self.refresh_interface()
 
 	def change_constellation_size(self):
