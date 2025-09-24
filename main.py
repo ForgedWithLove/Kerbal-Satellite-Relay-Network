@@ -459,8 +459,7 @@ class MainWindow(QMainWindow):
 
 	def new_constellation(self):
 		constellation = Constellation(self.objects[self.active_obj], 3, self.scale)
-		height = self.objects[self.active_obj].lpo + 1
-		constellation.setOrbitHeight(height)
+		constellation.setOrbitHeight(self.constellation_lpo(self.objects[self.active_obj], 3))
 		constellation.setName(self.next_constellation_name())
 		self.constellations.append(constellation)
 		self.active_constellation = len(self.constellations) - 1
@@ -558,6 +557,9 @@ class MainWindow(QMainWindow):
 	def orbit_low_border(self, parent_obj, child_obj):
 		return parent_obj.lpo + child_obj.soi_radius + child_obj.radius
 
+	def constellation_lpo(self, obj, size):
+		return round(obj.radius * (1 / cos(pi / size) - 1))
+
 	def refresh_interface(self):
 		self.planet_set.clear()
 		self.planet_set.addItems([obj.name for obj in self.objects])
@@ -610,8 +612,14 @@ class MainWindow(QMainWindow):
 					active_const = index
 			self.constellation_set.setCurrentIndex(active_const)
 			self.constellation_size_input.setValue(self.constellations[self.active_constellation].getSize())
-			self.constellation_height_input.setValue(self.constellations[self.active_constellation].orbit_height)
 			self.constellation_name.setText(self.constellations[self.active_constellation].name)
+			self.constellation_height_input.setMinimum(self.constellation_lpo(self.objects[self.active_obj], self.constellations[self.active_constellation].getSize()))
+			self.constellation_height_input.setMaximum(self.objects[self.active_obj].soi_radius)
+			if self.constellations[self.active_constellation].orbit_height > self.objects[self.active_obj].soi_radius:
+				self.constellations[self.active_constellation].setOrbitHeight(self.objects[self.active_obj].soi_radius)
+			elif self.constellations[self.active_constellation].orbit_height < self.constellation_lpo(self.objects[self.active_obj], self.constellations[self.active_constellation].getSize()):
+				self.constellations[self.active_constellation].setOrbitHeight(self.constellation_lpo(self.objects[self.active_obj], self.constellations[self.active_constellation].getSize()))
+			self.constellation_height_input.setValue(self.constellations[self.active_constellation].orbit_height)
 
 if __name__ == "__main__":
 	app = QApplication(sys.argv)
