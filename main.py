@@ -215,13 +215,16 @@ class MainWindow(QMainWindow):
 		new_planet.setFont(QFont('Times', 14))
 		new_planet.setFixedSize(30, 30)
 		new_planet.clicked.connect(self.new_planet)
+		self.del_planet = QPushButton(text="🗑")
+		self.del_planet.setFont(QFont('Times', 14))
+		self.del_planet.setFixedSize(30, 30)
+		self.del_planet.clicked.connect(self.delete_planet)
 		self.planet_set = QComboBox()
 		self.planet_set.addItem("Центр")
 		self.planet_set.setCurrentIndex(self.active_obj)
 		self.planet_set.setFixedSize(295, 30)
 
 		self.planet_name = QLineEdit() #20 символов
-		self.planet_name.setFixedSize(330, 30)
 		self.planet_name.setFont(QFont('', 14))
 		self.planet_name.setAlignment(Qt.AlignmentFlag.AlignCenter)
 		self.planet_name.setText("Центр")
@@ -229,6 +232,7 @@ class MainWindow(QMainWindow):
 		planet_selection = QHBoxLayout()
 		planet_selection.addWidget(new_planet)
 		planet_selection.addWidget(self.planet_set)
+		planet_selection.addWidget(self.del_planet)
 
 		parent_label = QLabel("Центр: ")
 		self.parent_input = QComboBox()
@@ -317,13 +321,15 @@ class MainWindow(QMainWindow):
 		new_constellation.setFont(QFont('Times', 14))
 		new_constellation.setFixedSize(30, 30)
 		new_constellation.clicked.connect(self.new_constellation)
-
+		self.del_constellation = QPushButton(text="🗑")
+		self.del_constellation.setFont(QFont('Times', 14))
+		self.del_constellation.setFixedSize(30, 30)
+		self.del_constellation.clicked.connect(self.delete_constellation)
 		self.constellation_set = QComboBox()
 		self.constellation_set.setFixedSize(295, 30)
 		self.constellation_set.activated.connect(self.activate_constellation)
 
 		self.constellation_name = QLineEdit() #20 символов
-		self.constellation_name.setFixedSize(330, 30)
 		self.constellation_name.setFont(QFont('', 14))
 		self.constellation_name.setAlignment(Qt.AlignmentFlag.AlignCenter)
 		self.constellation_name.setEnabled(False)
@@ -332,6 +338,7 @@ class MainWindow(QMainWindow):
 		lt7 = QHBoxLayout()
 		lt7.addWidget(new_constellation)
 		lt7.addWidget(self.constellation_set)
+		lt7.addWidget(self.del_constellation)
 
 		lt8 = QHBoxLayout()
 		lt8.addWidget(constellation_size_label)
@@ -348,7 +355,7 @@ class MainWindow(QMainWindow):
 		satellite_options.addLayout(lt9)
 
 		blank = QLabel()
-		blank.setFixedSize(20, 30)
+		blank.setFixedSize(1, 30)
 
 		planet_lt = QHBoxLayout()
 		planet_lt.addWidget(blank)
@@ -457,12 +464,29 @@ class MainWindow(QMainWindow):
 		self.active_obj = len(self.objects) - 1
 		self.refresh_interface()
 
+	def delete_planet(self):
+		parent_index = self.objects.index(self.objects[self.active_obj].parent)
+		self.constellations = list(map(lambda const: None if (const.parent.parent == self.objects[self.active_obj] or const.parent == self.objects[self.active_obj]) else const, self.constellations))
+		while None in self.constellations:
+			self.constellations.remove(None)
+		self.objects = list(map(lambda obj: None if (obj.parent == self.objects[self.active_obj]) or obj == self.objects[self.active_obj] else obj, self.objects))
+		while None in self.objects:
+			self.objects.remove(None)
+		self.active_obj = parent_index
+		self.refresh_interface()
+
 	def new_constellation(self):
 		constellation = Constellation(self.objects[self.active_obj], 3, self.scale)
 		constellation.setOrbitHeight(self.constellation_lpo(self.objects[self.active_obj], 3))
 		constellation.setName(self.next_constellation_name())
 		self.constellations.append(constellation)
 		self.active_constellation = len(self.constellations) - 1
+		self.refresh_interface()
+
+	def delete_constellation(self):
+		self.constellations.pop(self.active_constellation)
+		consts = self.active_consts()
+		self.active_constellation = consts[0]["base"] if len(consts) > 0 else None
 		self.refresh_interface()
 
 	def next_name(self):
@@ -570,7 +594,9 @@ class MainWindow(QMainWindow):
 			self.orbit_height_input.setMinimum(0)
 			self.orbit_height_input.setValue(0)
 			self.orbit_height_input.setDisabled(True)
+			self.del_planet.setEnabled(False)
 		else:
+			self.del_planet.setEnabled(True)
 			if self.orbit_height_input.value() == 0:
 				self.orbit_height_input.setDisabled(False)
 				self.orbit_height_input.setMinimum(1)
@@ -601,10 +627,12 @@ class MainWindow(QMainWindow):
 			self.constellation_size_input.setEnabled(False)
 			self.constellation_height_input.setEnabled(False)
 			self.constellation_name.setEnabled(False)
+			self.del_constellation.setEnabled(False)
 		else:
 			self.constellation_size_input.setEnabled(True)
 			self.constellation_height_input.setEnabled(True)
 			self.constellation_name.setEnabled(True)
+			self.del_constellation.setEnabled(True)
 			self.constellation_set.addItems([const["obj"].name for const in active_consts])
 			active_const = 0
 			for index, const in enumerate(active_consts):
