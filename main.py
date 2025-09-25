@@ -5,6 +5,44 @@ from PyQt6.QtCore import Qt, QRect, QPoint, QTimer
 from PyQt6.QtWidgets import QApplication, QWidget, QMainWindow, QSlider, QSpinBox, QComboBox, QLabel, QRadioButton, QVBoxLayout, QHBoxLayout, QCheckBox, QPushButton, QLineEdit, QColorDialog
 from PyQt6.QtGui import QPainter, QPen, QColor, QPolygon, QBrush, QFont, QPalette
 
+def point_line_range(point: QPoint, lineA: QPoint, lineB: QPoint):
+	A = (lineA.y() - lineB.y())
+	B = (lineB.x() - lineA.x())
+	return abs(A * point.x() + B * point.y() + (lineA.x() * lineB.y() - lineB.x() * lineA.y())) / sqrt(A * A + B * B)
+
+def parse_rating(rating):
+	cnt = 0
+	rate = rating
+	while rate / 1000 > 1:
+		cnt += 1
+		rate = int(rate / 1000)
+	if cnt == 0:
+		mult = 'k'
+	elif cnt == 1:
+		mult = 'M'
+	elif cnt == 2:
+		mult = 'G'
+	elif cnt == 3:
+		mult = 'T'
+	else:
+		raise ValueError('Parsing multiplier error')
+	return {'value': rate, 'mult': mult}
+
+def unparse_rating(rating):
+	rate = rating['value']
+	mult = rating['mult']
+	if mult == 'k':
+		cnt = 0 
+	elif mult == 'M':
+		cnt = 1
+	elif mult == 'G':
+		cnt = 2
+	elif mult == 'T':
+		cnt = 3
+	else:
+		raise ValueError('Parsing multiplier error')
+	return rate * pow(1000, cnt)
+
 class Planet():
 	def __init__(self, center):
 		self.center = center
@@ -100,6 +138,7 @@ class Satellite():
 		self.alpha = alpha
 		self.color = QColor(0, 255, 63, 100)
 		self.angle_ratio = 0.01
+		self.rating = 5
 
 	def setParent(self, parent):
 		self.parent = parent
@@ -109,6 +148,9 @@ class Satellite():
 
 	def setColor(self, color):
 		self.color = color
+
+	def setRating(self, rating):
+		self.rating = rating
 
 	def autoCenter(self, scale):
 		if self.parent is not None:
@@ -143,6 +185,7 @@ class Constellation():
 		self.orbit_height = parent.lpo #км
 		self.satellites = []
 		self.name = ""
+		self.rating = 5
 		angle = 0
 		alpha = 2*pi / const_sz
 		for i in range(const_sz):
@@ -178,6 +221,11 @@ class Constellation():
 			tmp.autoCenter(scale)
 			angle += alpha
 			self.satellites.append(tmp)
+
+	def setSatelliteRating(self, rating):
+		self.rating = rating
+		for satellite in self.satellites:
+			satellite.setRating(rating)
 
 	def draw(self, painter, scale):
 		for index, satellite in enumerate(self.satellites):
@@ -317,6 +365,16 @@ class MainWindow(QMainWindow):
 		self.constellation_height_input.editingFinished.connect(self.change_constellation_height)
 		self.constellation_height_input.setEnabled(False)
 
+		constellation_rating_label = QLabel("Мощность антенны: ")
+		self.constellation_rating_input = QSpinBox()
+		self.constellation_rating_input.setMinimum(1)
+		self.constellation_rating_input.setMaximum(999)
+		self.constellation_rating_input.editingFinished.connect(self.change_satellite_rating)
+		self.constellation_rating_input.setEnabled(False)
+		self.constellation_rating_multiplier_input = QComboBox()
+		self.constellation_rating_multiplier_input.activated.connect(self.change_satellite_rating)
+		self.constellation_rating_multiplier_input.setEnabled(False)
+
 		new_constellation = QPushButton(text="🛰")
 		new_constellation.setFont(QFont('Times', 14))
 		new_constellation.setFixedSize(30, 30)
@@ -348,11 +406,20 @@ class MainWindow(QMainWindow):
 		lt9.addWidget(constellation_height_label)
 		lt9.addWidget(self.constellation_height_input)
 
+		lt10 = QHBoxLayout()
+		lt10.addWidget(self.constellation_rating_input)
+		lt10.addWidget(self.constellation_rating_multiplier_input)
+
+		lt11 = QHBoxLayout()
+		lt11.addWidget(constellation_rating_label)
+		lt11.addLayout(lt10)
+		
 		satellite_options = QVBoxLayout()
 		satellite_options.addLayout(lt7)
 		satellite_options.addWidget(self.constellation_name)
 		satellite_options.addLayout(lt8)
 		satellite_options.addLayout(lt9)
+		satellite_options.addLayout(lt11)
 
 		blank = QLabel()
 		blank.setFixedSize(1, 30)
@@ -553,6 +620,10 @@ class MainWindow(QMainWindow):
 		self.constellations[self.active_constellation].setName(self.constellation_name.text())
 		self.refresh_interface()
 
+	def change_satellite_rating(self):
+		self.constellations[self.active_constellation].setSatelliteRating(unparse_rating({'value': self.constellation_rating_input.value(), 'mult': self.constellation_rating_multiplier_input.currentText()}))
+		self.refresh_interface()
+
 	def repaint_object(self):
 		color = QColorDialog.getColor(self.objects[self.active_obj].color, self, "Выберите цвет")
 		if color.isValid():
@@ -622,17 +693,22 @@ class MainWindow(QMainWindow):
 		self.planet_name.setText(self.objects[self.active_obj].name)
 
 		self.constellation_set.clear()
+		self.constellation_rating_multiplier_input.clear()
 		active_consts = self.active_consts()
 		if len(active_consts) == 0:
 			self.constellation_size_input.setEnabled(False)
 			self.constellation_height_input.setEnabled(False)
 			self.constellation_name.setEnabled(False)
 			self.del_constellation.setEnabled(False)
+			self.constellation_rating_input.setEnabled(False)
+			self.constellation_rating_multiplier_input.setEnabled(False)
 		else:
 			self.constellation_size_input.setEnabled(True)
 			self.constellation_height_input.setEnabled(True)
 			self.constellation_name.setEnabled(True)
 			self.del_constellation.setEnabled(True)
+			self.constellation_rating_input.setEnabled(True)
+			self.constellation_rating_multiplier_input.setEnabled(True)
 			self.constellation_set.addItems([const["obj"].name for const in active_consts])
 			active_const = 0
 			for index, const in enumerate(active_consts):
@@ -648,6 +724,10 @@ class MainWindow(QMainWindow):
 			elif self.constellations[self.active_constellation].orbit_height < self.constellation_lpo(self.objects[self.active_obj], self.constellations[self.active_constellation].getSize()):
 				self.constellations[self.active_constellation].setOrbitHeight(self.constellation_lpo(self.objects[self.active_obj], self.constellations[self.active_constellation].getSize()))
 			self.constellation_height_input.setValue(self.constellations[self.active_constellation].orbit_height)
+			self.constellation_rating_multiplier_input.addItems(['k', 'M', 'G', 'T'])
+			rating = parse_rating(self.constellations[self.active_constellation].rating)
+			self.constellation_rating_multiplier_input.setCurrentIndex(['k', 'M', 'G', 'T'].index(rating['mult']))
+			self.constellation_rating_input.setValue(rating['value'])
 
 if __name__ == "__main__":
 	app = QApplication(sys.argv)
