@@ -5,10 +5,71 @@ from PyQt6.QtCore import Qt, QRect, QPoint, QTimer
 from PyQt6.QtWidgets import QApplication, QWidget, QMainWindow, QSlider, QSpinBox, QComboBox, QLabel, QRadioButton, QVBoxLayout, QHBoxLayout, QCheckBox, QPushButton, QLineEdit, QColorDialog
 from PyQt6.QtGui import QPainter, QPen, QColor, QPolygon, QBrush, QFont, QPalette
 
-def point_line_range(point: QPoint, lineA: QPoint, lineB: QPoint):
-	A = (lineA.y() - lineB.y())
-	B = (lineB.x() - lineA.x())
-	return abs(A * point.x() + B * point.y() + (lineA.x() * lineB.y() - lineB.x() * lineA.y())) / sqrt(A * A + B * B)
+# Функция вычисления расстояния между двумя точками
+def points_range(point1: QPoint, point2: QPoint):
+	return sqrt(pow(point1.x() - point2.x(), 2) + pow(point1.y() - point2.y(), 2))
+
+def point_segment_distance(px, py, ax, ay, bx, by):
+    vx, vy = bx - ax, by - ay
+    wx, wy = px - ax, py - ay
+    l2 = vx*vx + vy*vy
+    if l2 == 0:  # отрезок вырожден в точку
+        return sqrt((px - ax)**2 + (py - ay)**2)
+    t = (wx*vx + wy*vy) / l2
+    if t <= 0:
+        return sqrt((px - ax)**2 + (py - ay)**2)
+    if t >= 1:
+        return sqrt((px - bx)**2 + (py - by)**2)
+    projx = ax + t * vx
+    projy = ay + t * vy
+    return sqrt((px - projx)**2 + (py - projy)**2)
+
+def link_planetary_intersection(objects, lineA: QPoint, lineB: QPoint, scale):
+    ax, ay = float(lineA.x()), float(lineA.y())
+    bx, by = float(lineB.x()), float(lineB.y())
+    for obj in objects:
+        cx, cy = float(obj.center.x()), float(obj.center.y())
+        R = float(obj.radius) * float(scale)
+        dist = point_segment_distance(cx, cy, ax, ay, bx, by)
+        if dist <= R + 1e-9:
+            return True
+    return False
+
+# Функция поиска кратчайшего соединения созвездий
+def shortest_link(const1, const2, objects, scale):
+	big_const = const1.getSatellitePoints()
+	small_const = const2.getSatellitePoints()
+	if len(big_const) < len(small_const):
+		tmp = big_const
+		big_const = small_const
+		small_const = big_const
+	shortest = []
+	for small_point in small_const:
+		base_point = big_const[0]
+		left_point = big_const[1]
+		right_point = big_const[len(big_const) - 1]
+		if points_range(base_point, small_point) > points_range(left_point, small_point):
+			cnt = 1
+			current_point = big_const[1]
+			next_point = big_const[2]
+			while points_range(current_point, small_point) > points_range(next_point, small_point):
+				cnt += 1
+				current_point = big_const[cnt]
+				next_point = big_const[cnt + 1] if cnt + 1 <= len(big_const) - 1 else big_const[0]
+			shortest = [current_point, small_point] if (len(shortest) == 0 or points_range(current_point, small_point) < points_range(shortest[0], shortest[1])) and not link_planetary_intersection(objects, current_point, small_point, scale) else shortest
+		else:
+			if points_range(base_point, small_point) < points_range(right_point, small_point):
+				shortest = [base_point, small_point] if (len(shortest) == 0 or points_range(base_point, small_point) < points_range(shortest[0], shortest[1])) and not link_planetary_intersection(objects, base_point, small_point, scale) else shortest
+			if len(shortest) == 0:
+				cnt = len(big_const) - 1
+				current_point = big_const[cnt]
+				next_point = big_const[cnt - 1]
+				while points_range(current_point, small_point) > points_range(next_point, small_point):
+					cnt -= 1
+					current_point = big_const[cnt]
+					next_point = big_const[cnt - 1] if cnt - 1 >= 0 else big_const[len(big_const) - 1]
+				shortest = [current_point, small_point] if (len(shortest) == 0 or points_range(current_point, small_point) < points_range(shortest[0], shortest[1])) and not link_planetary_intersection(objects, current_point, small_point, scale) else shortest
+	return shortest
 
 def parse_rating(rating):
 	cnt = 0
@@ -199,6 +260,9 @@ class Constellation():
 
 	def getSize(self):
 		return len(self.satellites)
+
+	def getSatellitePoints(self):
+		return list(map(lambda sat: sat.center, self.satellites))
 
 	def setName(self, name):
 		self.name = name
@@ -493,6 +557,8 @@ class MainWindow(QMainWindow):
 
 		for constellation in self.constellations:
 			constellation.draw(painter, self.scale)
+		if len(self.constellations) == 2:
+			self.paint_constellation_link(self.constellations[0], self.constellations[1], painter)
 
 		controls_panel = QRect(900, 0, 400, 900)
 		painter.setPen(QPen(self.background_brush.color()))
@@ -501,6 +567,11 @@ class MainWindow(QMainWindow):
 
 		painter.end()
 
+	def paint_constellation_link(self, const1: Constellation, const2: Constellation, painter: QPainter):
+		sl = shortest_link(const1, const2, self.objects, self.scale)
+		if len(sl) > 0:
+			painter.drawLine(sl[0], sl[1])
+		
 	def restart_timer(self, timeout):
 		self.timer.stop()
 		self.timer.start(timeout)
@@ -606,6 +677,8 @@ class MainWindow(QMainWindow):
 
 	def activate_object(self, index):
 		self.active_obj = index
+		if len(self.active_consts()) > 0:
+			self.activate_constellation(0)
 		self.refresh_interface()
 
 	def rename_object(self):
@@ -621,7 +694,8 @@ class MainWindow(QMainWindow):
 		self.refresh_interface()
 
 	def change_satellite_rating(self):
-		self.constellations[self.active_constellation].setSatelliteRating(unparse_rating({'value': self.constellation_rating_input.value(), 'mult': self.constellation_rating_multiplier_input.currentText()}))
+		if self.active_constellation is not None:
+			self.constellations[self.active_constellation].setSatelliteRating(unparse_rating({'value': self.constellation_rating_input.value(), 'mult': self.constellation_rating_multiplier_input.currentText()}))
 		self.refresh_interface()
 
 	def repaint_object(self):
@@ -694,6 +768,10 @@ class MainWindow(QMainWindow):
 
 		self.constellation_set.clear()
 		self.constellation_rating_multiplier_input.clear()
+		self.constellation_name.clear()
+		self.constellation_height_input.clear()
+		self.constellation_rating_input.clear()
+		self.constellation_size_input.clear()
 		active_consts = self.active_consts()
 		if len(active_consts) == 0:
 			self.constellation_size_input.setEnabled(False)
