@@ -1,7 +1,9 @@
 from math import sqrt, sin, cos, ceil, pi
+import heapq
 import sys
+from copy import deepcopy
 from random import randrange, uniform
-from PyQt6.QtCore import Qt, QRect, QPoint, QTimer
+from PyQt6.QtCore import Qt, QRect, QPoint, QTimer, QLine
 from PyQt6.QtWidgets import QApplication, QWidget, QMainWindow, QSlider, QSpinBox, QComboBox, QLabel, QRadioButton, QVBoxLayout, QHBoxLayout, QCheckBox, QPushButton, QLineEdit, QColorDialog
 from PyQt6.QtGui import QPainter, QPen, QColor, QPolygon, QBrush, QFont, QPalette
 
@@ -37,39 +39,61 @@ def link_planetary_intersection(objects, lineA: QPoint, lineB: QPoint, scale):
 
 # Функция поиска кратчайшего соединения созвездий
 def shortest_link(const1, const2, objects, scale):
-	big_const = const1.getSatellitePoints()
-	small_const = const2.getSatellitePoints()
-	if len(big_const) < len(small_const):
-		tmp = big_const
-		big_const = small_const
-		small_const = big_const
-	shortest = []
-	for small_point in small_const:
-		base_point = big_const[0]
-		left_point = big_const[1]
-		right_point = big_const[len(big_const) - 1]
-		if points_range(base_point, small_point) > points_range(left_point, small_point):
-			cnt = 1
-			current_point = big_const[1]
-			next_point = big_const[2]
-			while points_range(current_point, small_point) > points_range(next_point, small_point):
-				cnt += 1
-				current_point = big_const[cnt]
-				next_point = big_const[cnt + 1] if cnt + 1 <= len(big_const) - 1 else big_const[0]
-			shortest = [current_point, small_point] if (len(shortest) == 0 or points_range(current_point, small_point) < points_range(shortest[0], shortest[1])) and not link_planetary_intersection(objects, current_point, small_point, scale) else shortest
-		else:
-			if points_range(base_point, small_point) < points_range(right_point, small_point):
-				shortest = [base_point, small_point] if (len(shortest) == 0 or points_range(base_point, small_point) < points_range(shortest[0], shortest[1])) and not link_planetary_intersection(objects, base_point, small_point, scale) else shortest
-			if len(shortest) == 0:
-				cnt = len(big_const) - 1
-				current_point = big_const[cnt]
-				next_point = big_const[cnt - 1]
-				while points_range(current_point, small_point) > points_range(next_point, small_point):
-					cnt -= 1
-					current_point = big_const[cnt]
-					next_point = big_const[cnt - 1] if cnt - 1 >= 0 else big_const[len(big_const) - 1]
-				shortest = [current_point, small_point] if (len(shortest) == 0 or points_range(current_point, small_point) < points_range(shortest[0], shortest[1])) and not link_planetary_intersection(objects, current_point, small_point, scale) else shortest
-	return shortest
+    left_const = const1.getSatellitePoints()
+    right_const = const2.getSatellitePoints()
+    shortest = []
+    min_dist = float("inf")
+
+    for right_point in right_const:
+        for left_point in left_const:
+            dist = points_range(left_point, right_point)
+            if dist < min_dist and not link_planetary_intersection(objects, left_point, right_point, scale):
+                shortest = [left_point, right_point]
+                min_dist = dist
+
+    return QLine(shortest[0], shortest[1]) if shortest else None
+
+def shortest_path(graph, start, goal):
+    """
+    graph: dict[str, dict[str, dict[str, float|str]]]  
+           { узел1: {узел2: {"quality": %, "distance": км, "line": str}, ...}, ... }
+    """
+    # Очередь ( -качество, расстояние, узел, маршрут_узлов, текущее_качество, маршрут_линий )
+    queue = [(-100, 0, start, [start], 100, [])]  
+    visited = {}
+
+    while queue:
+        neg_quality, dist, node, path, path_quality, lines = heapq.heappop(queue)
+        quality = -neg_quality
+
+        # Если узел уже посещён с не худшими параметрами, пропускаем
+        if node in visited:
+            prev_q, prev_d = visited[node]
+            if prev_q > quality or (prev_q == quality and prev_d <= dist):
+                continue
+
+        visited[node] = (quality, dist)
+
+        # Если дошли до цели → возвращаем
+        if node == goal:
+            return path_quality, dist, path, lines
+
+        # Обходим соседей
+        for neighbor, data in graph.get(node, {}).items():
+            edge_q = data["quality"]
+            edge_d = data["distance"]
+            edge_line = data["line"]
+
+            new_quality = min(path_quality, edge_q)
+            new_dist = dist + edge_d
+            new_lines = lines + [edge_line]
+
+            heapq.heappush(
+                queue,
+                (-new_quality, new_dist, neighbor, path + [neighbor], new_quality, new_lines)
+            )
+
+    return 0, float("inf"), [], []  # если нет пути
 
 def parse_rating(rating):
 	cnt = 0
@@ -319,6 +343,9 @@ class MainWindow(QMainWindow):
 		self.constellations = []
 		self.active_constellation = None
 		self.scale = 860 / (main_object.radius + main_object.soi_radius) / 2
+		self.paint_path = False
+		self.signal_sum = 0
+		self.signal_num = 0
 
 		canvas = QLabel()
 		canvas.setFixedSize(900, 900)
@@ -457,6 +484,15 @@ class MainWindow(QMainWindow):
 		self.constellation_name.setEnabled(False)
 		self.constellation_name.editingFinished.connect(self.rename_constellation)
 
+		self.constellation_start_set = QComboBox()
+		self.constellation_start_set.activated.connect(self.new_constellation_start)
+		self.constellation_target_set = QComboBox()
+		self.constellation_target_set.activated.connect(self.new_constellation_target)
+		self.constellation_path_show = QPushButton()
+		self.constellation_path_show.setFixedSize(40, 52)
+		self.constellation_path_show.released.connect(self.toggle_constellation_path)
+		self.current_signal = QLabel("Средний уровень сигнала: ")
+
 		lt7 = QHBoxLayout()
 		lt7.addWidget(new_constellation)
 		lt7.addWidget(self.constellation_set)
@@ -477,6 +513,18 @@ class MainWindow(QMainWindow):
 		lt11 = QHBoxLayout()
 		lt11.addWidget(constellation_rating_label)
 		lt11.addLayout(lt10)
+
+		lt12 = QVBoxLayout()
+		lt12.addWidget(self.constellation_start_set)
+		lt12.addWidget(self.constellation_target_set)
+
+		lt13 = QHBoxLayout()
+		lt13.addLayout(lt12)
+		lt13.addWidget(self.constellation_path_show)
+
+		lt14 = QVBoxLayout()
+		lt14.addLayout(lt13)
+		lt14.addWidget(self.current_signal)
 		
 		satellite_options = QVBoxLayout()
 		satellite_options.addLayout(lt7)
@@ -498,6 +546,11 @@ class MainWindow(QMainWindow):
 		self.satellite_lt.addLayout(satellite_options)
 		self.satellite_lt.addWidget(blank)
 
+		path_lt = QHBoxLayout()
+		path_lt.addWidget(blank)
+		path_lt.addLayout(lt14)
+		path_lt.addWidget(blank)
+
 		speed_slider = QSlider(Qt.Orientation.Horizontal)
 		speed_slider.setMinimum(1)
 		speed_slider.setMaximum(40)
@@ -515,6 +568,7 @@ class MainWindow(QMainWindow):
 		controls_lt = QVBoxLayout()
 		controls_lt.addLayout(planet_lt)
 		controls_lt.addLayout(self.satellite_lt)
+		controls_lt.addLayout(path_lt)
 		controls_lt.addLayout(options_lt)
 
 		main_lt = QHBoxLayout()
@@ -557,8 +611,17 @@ class MainWindow(QMainWindow):
 
 		for constellation in self.constellations:
 			constellation.draw(painter, self.scale)
-		if len(self.constellations) == 2:
-			self.paint_constellation_link(self.constellations[0], self.constellations[1], painter)
+
+		if self.paint_path:
+			signal_strength, distance, path, lines = shortest_path(self.get_constellation_graph(), self.constellation_start_set.currentText(), self.constellation_target_set.currentText())
+			self.signal_sum += signal_strength
+			self.signal_num += 1
+			self.current_signal.setText(f"Средний уровень сигнала: {round(self.signal_sum / self.signal_num)}%")
+			if self.signal_num > 5000:
+				self.signal_sum = 0
+				self.signal_num = 0
+			for line in lines:
+				painter.drawLine(line)
 
 		controls_panel = QRect(900, 0, 400, 900)
 		painter.setPen(QPen(self.background_brush.color()))
@@ -567,10 +630,23 @@ class MainWindow(QMainWindow):
 
 		painter.end()
 
-	def paint_constellation_link(self, const1: Constellation, const2: Constellation, painter: QPainter):
-		sl = shortest_link(const1, const2, self.objects, self.scale)
-		if len(sl) > 0:
-			painter.drawLine(sl[0], sl[1])
+	def get_constellation_graph(self):
+		graph = {}
+		for index, constellation in enumerate(self.constellations):
+			nodes = {}
+			others = deepcopy(self.constellations)
+			others.pop(index)
+			for another in others:
+				line = shortest_link(constellation, another, self.objects, self.scale)
+				if line is not None:
+					distance = points_range(line.p1(), line.p2()) * self.scale
+					max_range = sqrt(constellation.rating * another.rating)
+					if max_range > distance:
+						x = 1 - distance / max_range
+						signal_strength = round((3 - 2*x)*x*x*100)
+						nodes[another.name] = {"quality": signal_strength, "distance": distance, "line": line}
+			graph[constellation.name] = nodes
+		return graph
 		
 	def restart_timer(self, timeout):
 		self.timer.stop()
@@ -600,6 +676,7 @@ class MainWindow(QMainWindow):
 		planet.autoAR()
 		self.objects.append(planet)
 		self.active_obj = len(self.objects) - 1
+		self.paint_path = False
 		self.refresh_interface()
 
 	def delete_planet(self):
@@ -611,6 +688,7 @@ class MainWindow(QMainWindow):
 		while None in self.objects:
 			self.objects.remove(None)
 		self.active_obj = parent_index
+		self.paint_path = False
 		self.refresh_interface()
 
 	def new_constellation(self):
@@ -619,12 +697,14 @@ class MainWindow(QMainWindow):
 		constellation.setName(self.next_constellation_name())
 		self.constellations.append(constellation)
 		self.active_constellation = len(self.constellations) - 1
+		self.paint_path = False
 		self.refresh_interface()
 
 	def delete_constellation(self):
 		self.constellations.pop(self.active_constellation)
 		consts = self.active_consts()
 		self.active_constellation = consts[0]["base"] if len(consts) > 0 else None
+		self.paint_path = False
 		self.refresh_interface()
 
 	def next_name(self):
@@ -637,11 +717,13 @@ class MainWindow(QMainWindow):
 		self.objects[self.active_obj].setRadius(self.obj_radius_input.value())
 		if self.active_obj == 0:
 			self.rescale()
+		self.paint_path = False
 		self.refresh_interface()
 
 	def change_orbit_height(self):
 		self.objects[self.active_obj].setOrbitHeight(self.orbit_height_input.value())
 		self.recalc_AR(self.objects[self.active_obj])
+		self.paint_path = False
 		self.refresh_interface()
 
 	def change_soi_radius(self):
@@ -652,6 +734,7 @@ class MainWindow(QMainWindow):
 		if self.active_obj == 0:
 			self.rescale()
 		self.recalc_AR(self.objects[self.active_obj])
+		self.paint_path = False
 		self.refresh_interface()
 
 	def change_lpo(self):
@@ -659,20 +742,24 @@ class MainWindow(QMainWindow):
 		for obj in self.objects:
 			if obj.parent == self.objects[self.active_obj] and obj.orbit_height < self.orbit_low_border(self.objects[self.active_obj], obj):
 				obj.orbit_height = self.orbit_low_border(self.objects[self.active_obj], obj)
+		self.paint_path = False
 		self.refresh_interface()
 
 	def change_parent(self, index):
 		self.objects[self.active_obj].setParent(self.objects[[obj.name for obj in self.objects].index(self.parent_input.currentText())])
 		self.objects[self.active_obj].setOrbitHeight(round((self.objects[self.active_obj].parent.lpo + self.objects[self.active_obj].parent.soi_radius) / 2))
 		self.recalc_AR(self.objects[self.active_obj])
+		self.paint_path = False
 		self.refresh_interface()
 
 	def change_constellation_size(self):
 		self.constellations[self.active_constellation].setConstellationSize(self.constellation_size_input.value(), self.scale)
+		self.paint_path = False
 		self.refresh_interface()
 
 	def change_constellation_height(self):
 		self.constellations[self.active_constellation].setOrbitHeight(self.constellation_height_input.value())
+		self.paint_path = False
 		self.refresh_interface()
 
 	def activate_object(self, index):
@@ -691,12 +778,29 @@ class MainWindow(QMainWindow):
 
 	def rename_constellation(self):
 		self.constellations[self.active_constellation].setName(self.constellation_name.text())
+		self.paint_path = False
 		self.refresh_interface()
 
 	def change_satellite_rating(self):
 		if self.active_constellation is not None:
 			self.constellations[self.active_constellation].setSatelliteRating(unparse_rating({'value': self.constellation_rating_input.value(), 'mult': self.constellation_rating_multiplier_input.currentText()}))
+			self.paint_path = False
 		self.refresh_interface()
+
+	def new_constellation_start(self):
+		self.paint_path = False
+		self.refresh_interface()
+
+	def new_constellation_target(self):
+		self.paint_path = False
+		self.refresh_interface()
+
+	def toggle_constellation_path(self):
+		if self.constellation_start_set.currentText() != "" and self.constellation_target_set.currentText() != "":
+			self.signal_sum = 0
+			self.signal_num = 0
+			self.paint_path = True
+			self.refresh_interface()
 
 	def repaint_object(self):
 		color = QColorDialog.getColor(self.objects[self.active_obj].color, self, "Выберите цвет")
@@ -806,6 +910,24 @@ class MainWindow(QMainWindow):
 			rating = parse_rating(self.constellations[self.active_constellation].rating)
 			self.constellation_rating_multiplier_input.setCurrentIndex(['k', 'M', 'G', 'T'].index(rating['mult']))
 			self.constellation_rating_input.setValue(rating['value'])
+		prev_const1 = self.constellation_start_set.currentText()
+		self.constellation_start_set.clear()
+		prev_const2 = self.constellation_target_set.currentText()
+		self.constellation_target_set.clear()
+		self.constellation_start_set.addItems([const.name for const in self.constellations])
+		consts1 = list(map(lambda x: x.name, self.constellations))
+		if prev_const1 in consts1:
+			self.constellation_start_set.setCurrentIndex(consts1.index(prev_const1))
+			consts2 = deepcopy(consts1)
+			consts2.remove(prev_const1)
+			self.constellation_target_set.addItems(consts2)
+			if prev_const2 in consts2:
+				self.constellation_target_set.setCurrentIndex(consts2.index(prev_const2))
+			else:
+				self.constellation_target_set.setCurrentIndex(-1)
+		else:
+			self.constellation_start_set.setCurrentIndex(-1)
+			self.constellation_target_set.setCurrentIndex(-1)
 
 if __name__ == "__main__":
 	app = QApplication(sys.argv)
