@@ -639,7 +639,7 @@ class MainWindow(QMainWindow):
 			for another in others:
 				line = shortest_link(constellation, another, self.objects, self.scale)
 				if line is not None:
-					distance = points_range(line.p1(), line.p2()) * self.scale
+					distance = points_range(line.p1(), line.p2()) / self.scale
 					max_range = sqrt(constellation.rating * another.rating)
 					if max_range > distance:
 						x = 1 - distance / max_range
