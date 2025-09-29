@@ -271,6 +271,7 @@ class Constellation():
 		self.satellites = []
 		self.name = ""
 		self.rating = 5
+		self.signal_quality = 100
 		angle = 0
 		alpha = 2*pi / const_sz
 		for i in range(const_sz):
@@ -287,6 +288,20 @@ class Constellation():
 
 	def getSatellitePoints(self):
 		return list(map(lambda sat: sat.center, self.satellites))
+
+	def getSignalMult(self):
+		if self.signal_quality == 100:
+			return 0.0414
+		elif self.signal_quality == 90:
+			return 0.1958
+		elif self.signal_quality == 80:
+			return 0.28714
+		elif self.signal_quality == 50:
+			return 0.5
+		elif self.signal_quality == 1:
+			return 1
+		else:
+			raise ValueError('Incorrect signal quality')
 
 	def setName(self, name):
 		self.name = name
@@ -314,6 +329,12 @@ class Constellation():
 		self.rating = rating
 		for satellite in self.satellites:
 			satellite.setRating(rating)
+
+	def setSignalQuality(self, quality):
+		qlt = int(quality)
+		if qlt > 100 or qlt < 1:
+			raise ValueError('Incorrect signal quality')
+		self.signal_quality = qlt
 
 	def draw(self, painter, scale):
 		for index, satellite in enumerate(self.satellites):
@@ -492,6 +513,9 @@ class MainWindow(QMainWindow):
 		self.constellation_path_show.setFixedSize(40, 52)
 		self.constellation_path_show.released.connect(self.toggle_constellation_path)
 		self.current_signal = QLabel("Средний уровень сигнала: ")
+		self.constellation_sq_set = QComboBox()
+		self.constellation_sq_set.activated.connect(self.change_constellation_sq)
+		signal_quality_label = QLabel("Минимальное качество сигнала: ")
 
 		lt7 = QHBoxLayout()
 		lt7.addWidget(new_constellation)
@@ -525,6 +549,10 @@ class MainWindow(QMainWindow):
 		lt14 = QVBoxLayout()
 		lt14.addLayout(lt13)
 		lt14.addWidget(self.current_signal)
+
+		lt15 = QHBoxLayout()
+		lt15.addWidget(signal_quality_label)
+		lt15.addWidget(self.constellation_sq_set)
 		
 		satellite_options = QVBoxLayout()
 		satellite_options.addLayout(lt7)
@@ -532,6 +560,7 @@ class MainWindow(QMainWindow):
 		satellite_options.addLayout(lt8)
 		satellite_options.addLayout(lt9)
 		satellite_options.addLayout(lt11)
+		satellite_options.addLayout(lt15)
 
 		blank = QLabel()
 		blank.setFixedSize(1, 30)
@@ -694,6 +723,7 @@ class MainWindow(QMainWindow):
 	def new_constellation(self):
 		constellation = Constellation(self.objects[self.active_obj], 3, self.scale)
 		constellation.setOrbitHeight(self.constellation_lpo(self.objects[self.active_obj], 3))
+		constellation.setSatelliteRating(self.constellation_min_rating(self.objects[self.active_obj], 3, constellation.orbit_height, constellation.getSignalMult()))
 		constellation.setName(self.next_constellation_name())
 		self.constellations.append(constellation)
 		self.active_constellation = len(self.constellations) - 1
@@ -759,6 +789,11 @@ class MainWindow(QMainWindow):
 
 	def change_constellation_height(self):
 		self.constellations[self.active_constellation].setOrbitHeight(self.constellation_height_input.value())
+		self.paint_path = False
+		self.refresh_interface()
+
+	def change_constellation_sq(self):
+		self.constellations[self.active_constellation].setSignalQuality(self.constellation_sq_set.currentText()[:-1])
 		self.paint_path = False
 		self.refresh_interface()
 
@@ -833,6 +868,11 @@ class MainWindow(QMainWindow):
 	def constellation_lpo(self, obj, size):
 		return round(obj.radius * (1 / cos(pi / size) - 1))
 
+	def constellation_min_rating(self, obj, size, orbit_h, signal_mult):
+		tmp = parse_rating(round(ceil(2 * (obj.radius + orbit_h) * sin(pi / size)) / signal_mult))
+		tmp['value'] += 1
+		return unparse_rating(tmp)
+
 	def refresh_interface(self):
 		self.planet_set.clear()
 		self.planet_set.addItems([obj.name for obj in self.objects])
@@ -876,6 +916,7 @@ class MainWindow(QMainWindow):
 		self.constellation_height_input.clear()
 		self.constellation_rating_input.clear()
 		self.constellation_size_input.clear()
+		self.constellation_sq_set.clear()
 		active_consts = self.active_consts()
 		if len(active_consts) == 0:
 			self.constellation_size_input.setEnabled(False)
@@ -884,6 +925,7 @@ class MainWindow(QMainWindow):
 			self.del_constellation.setEnabled(False)
 			self.constellation_rating_input.setEnabled(False)
 			self.constellation_rating_multiplier_input.setEnabled(False)
+			self.constellation_sq_set.setEnabled(False)
 		else:
 			self.constellation_size_input.setEnabled(True)
 			self.constellation_height_input.setEnabled(True)
@@ -891,6 +933,7 @@ class MainWindow(QMainWindow):
 			self.del_constellation.setEnabled(True)
 			self.constellation_rating_input.setEnabled(True)
 			self.constellation_rating_multiplier_input.setEnabled(True)
+			self.constellation_sq_set.setEnabled(True)
 			self.constellation_set.addItems([const["obj"].name for const in active_consts])
 			active_const = 0
 			for index, const in enumerate(active_consts):
@@ -901,15 +944,20 @@ class MainWindow(QMainWindow):
 			self.constellation_name.setText(self.constellations[self.active_constellation].name)
 			self.constellation_height_input.setMinimum(self.constellation_lpo(self.objects[self.active_obj], self.constellations[self.active_constellation].getSize()))
 			self.constellation_height_input.setMaximum(self.objects[self.active_obj].soi_radius)
+			self.constellation_rating_input.setMinimum(parse_rating(self.constellation_min_rating(self.objects[self.active_obj], self.constellations[self.active_constellation].getSize(), self.constellations[self.active_constellation].orbit_height, self.constellations[self.active_constellation].getSignalMult()))['value'])
 			if self.constellations[self.active_constellation].orbit_height > self.objects[self.active_obj].soi_radius:
 				self.constellations[self.active_constellation].setOrbitHeight(self.objects[self.active_obj].soi_radius)
 			elif self.constellations[self.active_constellation].orbit_height < self.constellation_lpo(self.objects[self.active_obj], self.constellations[self.active_constellation].getSize()):
 				self.constellations[self.active_constellation].setOrbitHeight(self.constellation_lpo(self.objects[self.active_obj], self.constellations[self.active_constellation].getSize()))
 			self.constellation_height_input.setValue(self.constellations[self.active_constellation].orbit_height)
+			if self.constellations[self.active_constellation].rating < parse_rating(self.constellation_min_rating(self.objects[self.active_obj], self.constellations[self.active_constellation].getSize(), self.constellations[self.active_constellation].orbit_height, self.constellations[self.active_constellation].getSignalMult()))['value']:
+				self.constellations[self.active_constellation].setSatelliteRating(parse_rating(self.constellation_min_rating(self.objects[self.active_obj], self.constellations[self.active_constellation].getSize(), self.constellations[self.active_constellation].orbit_height, self.constellations[self.active_constellation].getSignalMult()))['value'])
 			self.constellation_rating_multiplier_input.addItems(['k', 'M', 'G', 'T'])
 			rating = parse_rating(self.constellations[self.active_constellation].rating)
 			self.constellation_rating_multiplier_input.setCurrentIndex(['k', 'M', 'G', 'T'].index(rating['mult']))
 			self.constellation_rating_input.setValue(rating['value'])
+			self.constellation_sq_set.addItems(["100%", "90%", "80%", "50%", "1%"])
+			self.constellation_sq_set.setCurrentIndex(["100", "90", "80", "50", "1"].index(str(self.constellations[self.active_constellation].signal_quality)))
 		prev_const1 = self.constellation_start_set.currentText()
 		self.constellation_start_set.clear()
 		prev_const2 = self.constellation_target_set.currentText()
